@@ -51,12 +51,15 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.security.InvalidKeyException;
-import java.security.InvalidParameterException;
+import java.security.KeyManagementException;
 import java.security.KeyPair;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.Signature;
 import java.security.SignatureException;
+import java.security.cert.Certificate;
 import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,15 +68,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import javax.net.ssl.SSLContext;
+
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 
@@ -87,12 +95,35 @@ public class AcmeClient {
 	private String agreement;
 	private Map<String, Object> jwk;
 	private String thumbprint;
+	public KeyStore keystore = null;
 
 	public AcmeClient(URI endpoint, String contact, KeyPair key,
-			PKCS10CertificationRequest csr, String agreement) {
+			PKCS10CertificationRequest csr, String agreement,
+			Certificate[] certs) {
 		if (endpoint == null || contact == null || key == null || csr == null
 				|| agreement == null) {
-			throw new InvalidParameterException();
+			throw new IllegalArgumentException();
+		}
+		try {
+			if (certs != null) {
+				KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+				boolean hasCert = true;
+				for (Certificate cert : certs) {
+					if (cert != null) {
+						this.keystore.setCertificateEntry(toBase64(cert
+								.getPublicKey().getEncoded()), cert);
+						hasCert = true;
+					}
+				}
+				if (hasCert) {
+					this.keystore = ks;
+				}
+			}
+		} catch (KeyStoreException e) {
+			// We should not get here
+			// Keystore is initialized with default type, so the only reason
+			// this should fail is are invalid/duplicate certs
+			throw new IllegalArgumentException();
 		}
 		this.endpoint = endpoint;
 		this.contact = contact;
@@ -107,6 +138,30 @@ public class AcmeClient {
 				.toByteArray()));
 		this.jwk = Collections.unmodifiableMap(m);
 		this.thumbprint = thumbprint();
+	}
+
+	private HttpClient client() {
+		if (this.keystore != null) {
+			try {
+				SSLContext ctx = SSLContexts.custom()
+						.loadTrustMaterial(this.keystore, null).build();
+				SSLConnectionSocketFactory sf = new SSLConnectionSocketFactory(
+						ctx, new String[] { "TLSv1" }, null,
+						SSLConnectionSocketFactory.getDefaultHostnameVerifier());
+				return HttpClients.custom().setSSLSocketFactory(sf).build();
+			} catch (KeyManagementException e) {
+				// We should not get here
+				throw new RuntimeException(e.getCause());
+			} catch (NoSuchAlgorithmException e) {
+				// We should not get here
+				throw new RuntimeException(e.getCause());
+			} catch (KeyStoreException e) {
+				// We should not get here
+				throw new RuntimeException(e.getCause());
+			}
+		} else {
+			return HttpClients.createDefault();
+		}
 	}
 
 	private String sign(String encodedHeader, String encodedPayload)
@@ -126,7 +181,7 @@ public class AcmeClient {
 
 	private String nonce() throws ClientProtocolException, IOException {
 		HttpHead req = new HttpHead(this.endpoint.toString() + FRAG_DIRECTORY);
-		HttpResponse res = HttpClients.createDefault().execute(req);
+		HttpResponse res = client().execute(req);
 		if (res != null) {
 			Header h = res.getFirstHeader(REPLAYNONCE);
 			if (h != null) {
@@ -179,7 +234,7 @@ public class AcmeClient {
 		p.put(SIGNATURE, sign(encodedHeader, encodedPayload));
 		req.setEntity(new StringEntity(toJson(p)));
 		System.out.println(toJson(p));
-		return HttpClients.createDefault().execute(req);
+		return client().execute(req);
 	}
 
 	public boolean newReg() throws InvalidKeyException,
@@ -303,7 +358,7 @@ public class AcmeClient {
 			IOException {
 		HttpGet req = new HttpGet(this.endpoint.toString() + FRAG_DIRECTORY);
 		req.addHeader(CONTENTTYPE, APPLICATIONJSON);
-		HttpResponse res = HttpClients.createDefault().execute(req);
+		HttpResponse res = client().execute(req);
 		if (res != null) {
 			HttpEntity entity = res.getEntity();
 			if (entity != null) {

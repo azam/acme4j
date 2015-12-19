@@ -42,6 +42,7 @@ public class AcmeConstants {
 	public static final String CSR = "csr";
 	public static final String CONTENTTYPE = "Content-Type";
 	public static final String APPLICATIONJSON = "application/json";
+	public static final String APPLICATIONJOSEJSON = "application/jose+json";
 	public static final String REPLAYNONCE = "Replay-Nonce";
 	public static final String SHA256 = "SHA-256";
 	public static final String SHA256WITHRSA = "SHA256withRSA";

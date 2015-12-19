@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.security.KeyPair;
 import java.security.Security;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -21,6 +23,8 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
@@ -110,6 +114,16 @@ public class AcmeUtil {
 		Object o = readPem(file);
 		if (o != null && o instanceof PKCS10CertificationRequest) {
 			return (PKCS10CertificationRequest) o;
+		}
+		return null;
+	}
+
+	public static Certificate readCert(File file) throws IOException,
+			CertificateException {
+		Object o = readPem(file);
+		if (o != null && o instanceof X509CertificateHolder) {
+			return new JcaX509CertificateConverter()
+					.getCertificate((X509CertificateHolder) o);
 		}
 		return null;
 	}
